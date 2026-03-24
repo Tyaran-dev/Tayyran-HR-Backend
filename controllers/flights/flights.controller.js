@@ -163,6 +163,130 @@ export const flightPricing = async (req, res, next) => {
     }
 }
 
+export const flightBooking = async (req, res, next) => {
+    try {
+        const token = await getAmadeusToken();
+        const { flightOffer, travelers, ticketingAgreement } = req.body;
+        const baseUrl = process.env.AMADEUS_BASE_URL;
+        const cardNumber = process.env.EASYPAY_CARD_NUMBER;
+        const cardExpiry = process.env.EASYPAY_CARD_EXPIRY;
+
+
+        if (!flightOffer || !travelers) {
+            return next(new ApiError(400, "Missing flightOffer or travelers"));
+        }
+
+        // Build payload
+        const payload = {
+            data: {
+                type: "flight-order",
+                flightOffers: [flightOffer],
+                travelers,
+                formOfPayments: [
+                    {
+                        creditCard: {
+                            brand: "EASYPAY",
+                            number: cardNumber,
+                            expiryDate: cardExpiry,
+                            flightOfferIds: [flightOffer.id],
+                        },
+                    },
+                ],
+                ...(ticketingAgreement &&
+                    Object.keys(ticketingAgreement).length > 0 && {
+                    ticketingAgreement,
+                }),
+            },
+        };
+
+        console.log(flightOffer, "flightOffer from controller 2");
+        console.log(payload, "payload 3");
+
+        // 1️⃣ Create flight order
+        const response = await axios.post(
+            `${baseUrl}/v1/booking/flight-orders`,
+            payload,
+            {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+            }
+        );
+
+        let orderData = response.data; // mutable
+        const flightOrderId = orderData.data.id;
+
+        console.log(orderData.data, "after create order");
+
+        console.log("create order from controlller 4");
+
+
+        // 2️⃣ Apply FM commission
+        const commissionPayload = {
+            data: {
+                type: "flight-order",
+                commissions: [
+                    {
+                        controls: ["MANUAL"],
+                        values: [
+                            {
+                                commissionType: "NEW",
+                                percentage: 0.0, // FM0
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+
+        await axios.patch(
+            `${baseUrl}/v1/booking/flight-orders/${flightOrderId}`,
+            commissionPayload,
+            {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+            }
+        );
+
+        console.log("fm added 5");
+
+        // 3️⃣ Issue ticket
+        const issuanceRes = await axios.post(
+            `${baseUrl}/v1/booking/flight-orders/${flightOrderId}/issuance`,
+            {}, // no payload needed for issuance
+            {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+            }
+        );
+
+        console.log("issuance done 6");
+        
+        // 4️⃣ Return issuance response (contains ticket info)
+        return res.status(201).json({
+            message:
+                "Flight order created, commission applied, and ticket issued successfully",
+            order: issuanceRes.data,
+        });
+
+
+    } catch (error) {
+        const errorMessage = error.response?.data || error.message;
+        console.error("Amadeus API Error:", errorMessage);
+        next(
+            new ApiError(
+                error.response?.status || 500,
+                errorMessage || "Error booking flights"
+            )
+        );
+    }
+}
+
 export const getFlightOrder = async (req, res, next) => {
     try {
         const token = await getAmadeusToken();
