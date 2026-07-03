@@ -24,6 +24,19 @@ const bookingSchema = new mongoose.Schema({
         required: true,
         index: true
     },
+    travelers: [{
+        employeeId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Employee',
+            default: null
+        },
+        firstName: { type: String, required: true },
+        lastName: { type: String, required: true },
+        email: { type: String },
+        passportNumber: { type: String }
+    }],
+    orderData: { type: Object }, // Amadeus order response if success
+    bookingPayload: { type: Object }, // raw booking payload if failed or for debugging
     bookingReference: {
         type: String,
         unique: true,

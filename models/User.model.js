@@ -33,7 +33,7 @@ const userSchema = new mongoose.Schema({
     },
     userStatus: {
         type: String,
-        enum: ['pending', 'active', 'suspended'],
+', 'sus        enum: ['pending', 'activepended'],
         default: 'pending',
     },
     isApproved: {

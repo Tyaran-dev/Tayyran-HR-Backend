@@ -58,16 +58,27 @@ const companySchema = new mongoose.Schema({
             ref: 'User'
         }
     }],
-    // Company status
     status: {
         type: String,
-        enum: ['active', 'suspended', 'pending'],
+        enum: ['active', 'suspended', 'pending', 'rejected'], // ✅ Added 'rejected'
         default: 'pending'
     },
-
+    // ✅ NEW: Approval tracking
+    approvedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    approvedAt: Date,
+    rejectedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    rejectedAt: Date,
+    rejectionReason: String
 }, {
     timestamps: true
-})
- const Company = mongoose.model('Company', companySchema);
+});
 
- export default Company;
+const Company = mongoose.model('Company', companySchema);
+
+export default Company;
