@@ -1,14 +1,14 @@
-import { ApiError } from "../utils/apiError.js";
-import Booking from "../models/Booking.model.js";
-import User from "../models/user.model.js";
-import Company from "../models/company.model.js";
-import Notification from "../models/Notification.model.js";
-import { emitToCompanyAdmins, emitToUser } from "../socket/socket.js";
+import { ApiError } from "../../utils/apiError.js";
+import Booking from "../../models/Booking.model.js";
+import User from "../../models/User.model.js";
+import Company from "../../models/Company.model.js";
+import Notification from "../../models/Notification.model.js";
+import { emitToCompanyAdmins, emitToUser } from "../../socket/socket.js";
 
 // ✅ Get all pending bookings for approval (company_admin only)
 export const getPendingBookings = async (req, res, next) => {
     try {
-        const { userId } = req.user;
+        const userId = req.user._id;
         const user = await User.findById(userId);
 
         // Only company_admin can view pending approvals
@@ -40,7 +40,7 @@ export const getPendingBookings = async (req, res, next) => {
 export const approveBooking = async (req, res, next) => {
     try {
         const { bookingId } = req.params;
-        const { userId } = req.user;
+        const userId = req.user._id;
 
         const user = await User.findById(userId);
 
@@ -112,7 +112,7 @@ export const rejectBooking = async (req, res, next) => {
     try {
         const { bookingId } = req.params;
         const { rejectionReason } = req.body; // Optional reason
-        const { userId } = req.user;
+        const userId = req.user._id;
 
         const user = await User.findById(userId);
 
@@ -184,7 +184,7 @@ export const rejectBooking = async (req, res, next) => {
 // ✅ Get approval statistics (for dashboard)
 export const getApprovalStats = async (req, res, next) => {
     try {
-        const { userId } = req.user;
+        const userId = req.user._id;
         const user = await User.findById(userId);
 
         if (user.role !== 'company_admin') {
@@ -216,4 +216,4 @@ export const getApprovalStats = async (req, res, next) => {
     } catch (error) {
         return next(new ApiError(500, error.message));
     }
-};
+};

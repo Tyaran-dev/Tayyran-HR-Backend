@@ -1,16 +1,16 @@
-import Company from "../../models/Company.model";
-import User from "../../models/User.model";
+import Company from "../../models/Company.model.js";
+import User from "../../models/User.model.js";
 import { ApiError } from "../../utils/apiError.js";
 
 export const getPendingCompanies = async (req, res, next) => {
     try {
-        const { userId } = req.user;
+        const userId = req.user._id;
         const user = await User.findById(userId);
         if (!user || user.role !== 'super_admin') {
             return next(new ApiError(403, 'Only super admin can view pending companies'));
         }
         const companies = await Company.find({ status: 'pending' })
-            .populate('user', 'name email phone role userStatus')
+            .populate('user', 'first_name last_name email phone role userStatus')
             .sort({ createdAt: -1 })
             .lean();
 
@@ -28,7 +28,7 @@ export const getPendingCompanies = async (req, res, next) => {
 export const approveCompany = async (req, res, next) => {
     try {
         const { companyId } = req.params;
-        const { userId } = req.user;
+        const userId = req.user._id;
 
         // 1. Verify super admin
         const superAdmin = await User.findById(userId);
@@ -66,30 +66,6 @@ export const approveCompany = async (req, res, next) => {
             companyAdmin.save()
         ]);
 
-        // 6. Send approval email to company admin
-        // try {
-        //     await sendEmail({
-        //         to: company.email,
-        //         subject: 'Company Approved - Welcome to Tayyran-HR',
-        //         html: `
-        //             <h2>Congratulations! Your company has been approved</h2>
-        //             <p>Dear ${companyAdmin.name},</p>
-        //             <p>Your company <strong>${company.name}</strong> has been successfully approved and activated.</p>
-        //             <p>You can now log in and start managing your travel bookings.</p>
-        //             <p><strong>Company Details:</strong></p>
-        //             <ul>
-        //                 <li>Company Name: ${company.name}</li>
-        //                 <li>Email: ${company.email}</li>
-        //                 <li>Wallet Balance: $${company.walletBalance}</li>
-        //             </ul>
-        //             <p>Best regards,<br>Tayyran-HR Team</p>
-        //         `
-        //     });
-        // } catch (emailError) {
-        //     console.error('Failed to send approval email:', emailError);
-        //     // Don't fail the approval if email fails
-        // }
-
         res.status(200).json({
             success: true,
             message: 'Company approved successfully',
@@ -103,7 +79,8 @@ export const approveCompany = async (req, res, next) => {
                 },
                 admin: {
                     _id: companyAdmin._id,
-                    name: companyAdmin.name,
+                    first_name: companyAdmin.first_name,
+                    last_name: companyAdmin.last_name,
                     email: companyAdmin.email,
                     userStatus: companyAdmin.userStatus
                 }
@@ -118,7 +95,7 @@ export const rejectCompany = async (req, res, next) => {
     try {
         const { companyId } = req.params;
         const { rejectionReason } = req.body;
-        const { userId } = req.user;
+        const userId = req.user._id;
 
         // 1. Validate rejection reason
         if (!rejectionReason || rejectionReason.trim().length === 0) {
@@ -141,47 +118,25 @@ export const rejectCompany = async (req, res, next) => {
             return next(new ApiError(400, `Company is already ${company.status}`));
         }
 
-        // if (!company.user) {
-        //     return next(new ApiError(400, 'Company has no associated admin user'));
-        // }
-
         // 4. Update company status
         company.status = 'rejected';
         company.rejectedBy = superAdmin._id;
         company.rejectedAt = new Date();
         company.rejectionReason = rejectionReason;
 
-        // 5. Update the company admin user
-        // const companyAdmin = await User.findById(company.user._id);
-        // companyAdmin.userStatus = 'suspended';
-        // companyAdmin.isApproved = false;
-        // companyAdmin.rejectionReason = rejectionReason;
+        // 5. Update the company admin user if exists
+        if (company.user) {
+            const companyAdmin = await User.findById(company.user._id);
+            if (companyAdmin) {
+                companyAdmin.userStatus = 'suspended';
+                companyAdmin.isApproved = false;
+                companyAdmin.rejectionReason = rejectionReason;
+                await companyAdmin.save();
+            }
+        }
 
-        // 6. Save both documents
-        await Promise.all([
-            company.save(),
-            // companyAdmin.save()
-        ]);
-
-        // 7. Send rejection email
-        // try {
-        //     await sendEmail({
-        //         to: company.email,
-        //         subject: 'Company Registration - Application Status',
-        //         html: `
-        //             <h2>Company Registration Update</h2>
-        //             <p>Dear ${companyAdmin.name},</p>
-        //             <p>We regret to inform you that your company registration for <strong>${company.name}</strong> has not been approved at this time.</p>
-        //             <p><strong>Reason:</strong></p>
-        //             <p>${rejectionReason}</p>
-        //             <p>If you have any questions or would like to reapply, please contact our support team.</p>
-        //             <p>Best regards,<br>Tayyran-HR Team</p>
-        //         `
-        //     });
-        // } catch (emailError) {
-        //     console.error('Failed to send rejection email:', emailError);
-        //     // Don't fail the rejection if email fails
-        // }
+        // 6. Save company
+        await company.save();
 
         res.status(200).json({
             success: true,
@@ -205,7 +160,7 @@ export const rejectCompany = async (req, res, next) => {
 export const getCompanyById = async (req, res, next) => {
     try {
         const { companyId } = req.params;
-        const { userId } = req.user;
+        const userId = req.user._id;
         
         const user = await User.findById(userId);
         if (!user) {
@@ -220,9 +175,9 @@ export const getCompanyById = async (req, res, next) => {
         }
 
         const company = await Company.findById(companyId)
-            .populate('user', 'name email phone role userStatus isApproved')
-            .populate('approvedBy', 'name email')
-            .populate('rejectedBy', 'name email')
+            .populate('user', 'first_name last_name email phone role userStatus isApproved')
+            .populate('approvedBy', 'first_name last_name email')
+            .populate('rejectedBy', 'first_name last_name email')
             .lean();
 
         if (!company) {
@@ -241,8 +196,23 @@ export const getCompanyById = async (req, res, next) => {
 
 export const getAllCompanies = async (req, res, next) => {
     try {
+        const userId = req.user._id;
+        const user = await User.findById(userId);
+        if (!user || user.role !== 'super_admin') {
+            return next(new ApiError(403, 'Only super admin can view all companies'));
+        }
 
+        const companies = await Company.find()
+            .populate('user', 'first_name last_name email phone role userStatus isApproved')
+            .sort({ createdAt: -1 })
+            .lean();
+
+        res.status(200).json({
+            success: true,
+            count: companies.length,
+            data: companies
+        });
     } catch (error) {
-        next(error);
+        next(new ApiError(500, error.message));
     }
-}
+}

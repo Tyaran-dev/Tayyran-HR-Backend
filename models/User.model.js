@@ -1,7 +1,13 @@
 import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
 
 const userSchema = new mongoose.Schema({
-    name: {
+    first_name: {
+        type: String,
+        required: true,
+        trim: true,
+    },
+    last_name: {
         type: String,
         required: true,
         trim: true,
@@ -33,7 +39,7 @@ const userSchema = new mongoose.Schema({
     },
     userStatus: {
         type: String,
-', 'sus        enum: ['pending', 'activepended'],
+        enum: ['pending', 'active', 'suspended'],
         default: 'pending',
     },
     isApproved: {
@@ -41,10 +47,32 @@ const userSchema = new mongoose.Schema({
         default: false
     },
     rejectionReason: String,
+    tokenVersion: {
+        type: Number,
+        default: 0
+    }
 }, {
     timestamps: true
-})
+});
+
+// Pre-save middleware to hash password
+userSchema.pre('save', async function (next) {
+    if (!this.isModified('password')) return next();
+    try {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
+    } catch (err) {
+        next(err);
+    }
+});
+
+// Instance method to compare password
+userSchema.methods.comparePassword = async function (candidatePassword) {
+    return await bcrypt.compare(candidatePassword, this.password);
+};
 
 const User = mongoose.model('User', userSchema);
 
 export default User;
+

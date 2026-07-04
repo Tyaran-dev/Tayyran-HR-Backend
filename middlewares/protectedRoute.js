@@ -1,4 +1,4 @@
-import User from "../models/mainDB/User.model.js";
+import User from "../models/User.model.js";
 import jwt from "jsonwebtoken";
 import { ApiError } from "../utils/apiError.js";
 

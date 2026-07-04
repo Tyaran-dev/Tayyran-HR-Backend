@@ -2,8 +2,8 @@ import { ApiError } from "../../utils/apiError.js";
 import axios from "axios";
 import Booking from "../../models/Booking.model.js";
 import Employee from "../../models/Employee.model.js";
-import User from "../../models/user.model.js";
-import Company from "../../models/company.model.js";
+import User from "../../models/User.model.js";
+import Company from "../../models/Company.model.js";
 import crypto from "crypto";
 
 // 🔥 SEPARATED LOGIC: Employee Hydration
@@ -24,28 +24,21 @@ async function hydrateEmployee(traveler, companyId) {
     }
 
     // Validate required travel information
-    if (!employee.personalInfo.passport?.number) {
+    if (!employee.personalInfo?.passport?.number) {
         throw new ApiError(400, `Employee ${employee.first_name} ${employee.last_name} is missing passport information`);
     }
 
-    if (!employee.personalInfo.dateOfBirth?.year) {
+    if (!employee.personalInfo?.dateOfBirth?.year) {
         throw new ApiError(400, `Employee ${employee.first_name} ${employee.last_name} is missing date of birth`);
     }
 
-    // Return hydrated employee data
+    // Return flat traveler object matching Booking Schema
     return {
         employeeId: employee._id,
-        type: 'employee',
-        personalInfo: {
-            title: employee.personalInfo.title,
-            first_name: employee.first_name,
-            middle_name: employee.personalInfo.middle_name,
-            last_name: employee.last_name,
-            dateOfBirth: employee.personalInfo.dateOfBirth,
-            nationality: employee.personalInfo.nationality,
-            passport: employee.personalInfo.passport,
-            contact: employee.personalInfo.contact
-        }
+        firstName: employee.first_name,
+        lastName: employee.last_name,
+        email: employee.email,
+        passportNumber: employee.personalInfo.passport.number
     };
 }
 
@@ -71,32 +64,30 @@ function hydrateGuest(traveler) {
         throw new ApiError(400, "Guest traveler must have date of birth");
     }
 
-    // Return guest data
+    // Return flat traveler object matching Booking Schema
     return {
-        type: 'guest',
-        personalInfo: {
-            title: personalInfo.title,
-            first_name: personalInfo.first_name,
-            middle_name: personalInfo.middle_name || "",
-            last_name: personalInfo.last_name,
-            dateOfBirth: personalInfo.dateOfBirth,
-            nationality: personalInfo.nationality,
-            passport: personalInfo.passport,
-            contact: personalInfo.contact
-        }
+        employeeId: null,
+        firstName: personalInfo.first_name,
+        lastName: personalInfo.last_name,
+        email: personalInfo.contact?.email || "",
+        passportNumber: personalInfo.passport.number
     };
 }
 
 export const createBooking = async (req, res, next) => {
     try {
         const { bookingType, bookingPayload, finalAmount, travelers } = req.body;
-        const { userId } = req.user;
+        const userId = req.user._id;
 
         // Fetch user and company
         const user = await User.findById(userId);
+        if (!user) {
+            return next(new ApiError(404, "User not found"));
+        }
+        
         const company = await Company.findById(user.company);
-        if (!user || !company) {
-            return next(new ApiError(404, "Company or User not found"));
+        if (!company) {
+            return next(new ApiError(404, "Company not found"));
         }
 
         // Validate travelers array
@@ -154,4 +145,68 @@ export const createBooking = async (req, res, next) => {
         return next(new ApiError(500, errorMessage));
     }
 };
+
+export const getBookings = async (req, res, next) => {
+    try {
+        const user = req.user;
+        let query = { company: user.company };
+
+        // HR can filter by own bookings, or super_admin can see all if they are calling (if super_admin is supported)
+        if (user.role === "company_user" && req.query.own === "true") {
+            query.user = user._id;
+        }
+
+        // Support super_admin viewing all bookings across companies
+        if (user.role === "super_admin") {
+            query = {}; // super_admin can view all bookings
+            if (req.query.companyId) {
+                query.company = req.query.companyId;
+            }
+        }
+
+        const bookings = await Booking.find(query)
+            .populate('user', 'first_name last_name email role')
+            .populate('company', 'name email status')
+            .sort({ createdAt: -1 })
+            .lean();
+
+        res.json({
+            success: true,
+            count: bookings.length,
+            data: bookings
+        });
+    } catch (error) {
+        return next(new ApiError(500, error.message));
+    }
+};
+
+export const getBookingById = async (req, res, next) => {
+    try {
+        const { bookingId } = req.params;
+        const user = req.user;
+
+        let query = { _id: bookingId };
+        if (user.role !== "super_admin") {
+            query.company = user.company;
+        }
+
+        const booking = await Booking.findOne(query)
+            .populate('user', 'first_name last_name email role')
+            .populate('company', 'name email status')
+            .lean();
+
+        if (!booking) {
+            return next(new ApiError(404, "Booking not found or access denied"));
+        }
+
+        res.json({
+            success: true,
+            data: booking
+        });
+    } catch (error) {
+        return next(new ApiError(500, error.message));
+    }
+};
+
+
 
