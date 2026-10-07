@@ -19,6 +19,14 @@ const companySchema = new mongoose.Schema({
         required: true,
         unique: true
     },
+    admins:[{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
+    users:[{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
     address: {
         street: String,
         city: String,
@@ -31,10 +39,6 @@ const companySchema = new mongoose.Schema({
         unique: true
     },
     logo: String,
-    user: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
-    },
     walletBalance: {
         type: Number,
         default: 0,

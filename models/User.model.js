@@ -1,13 +1,7 @@
 import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
 
 const userSchema = new mongoose.Schema({
-    first_name: {
-        type: String,
-        required: true,
-        trim: true,
-    },
-    last_name: {
+    name: {
         type: String,
         required: true,
         trim: true,
@@ -28,9 +22,13 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
+    passwordChangedAt: Date,
+    passwordResetCode: String,
+    passwordResetExpires: Date,
+    passwordResetVerified: Boolean,
     role: {
         type: String,
-        enum: ['super_admin', 'company_admin', 'company_user'],
+        enum: ['super_admin', 'company_admin', 'company_hr'],
         required: true,
     },
     company: {
@@ -42,37 +40,19 @@ const userSchema = new mongoose.Schema({
         enum: ['pending', 'active', 'suspended'],
         default: 'pending',
     },
+    emailVerified: {
+        type: Boolean,
+        default: false,
+    },
     isApproved: {
         type: Boolean,
         default: false
     },
     rejectionReason: String,
-    tokenVersion: {
-        type: Number,
-        default: 0
-    }
 }, {
     timestamps: true
-});
-
-// Pre-save middleware to hash password
-userSchema.pre('save', async function (next) {
-    if (!this.isModified('password')) return next();
-    try {
-        const salt = await bcrypt.genSalt(10);
-        this.password = await bcrypt.hash(this.password, salt);
-        next();
-    } catch (err) {
-        next(err);
-    }
-});
-
-// Instance method to compare password
-userSchema.methods.comparePassword = async function (candidatePassword) {
-    return await bcrypt.compare(candidatePassword, this.password);
-};
+})
 
 const User = mongoose.model('User', userSchema);
 
 export default User;
-

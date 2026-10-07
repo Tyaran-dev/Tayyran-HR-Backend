@@ -1,110 +1,74 @@
+import bcrypt from "bcryptjs";
 import Company from "../../models/Company.model.js";
 import User from "../../models/User.model.js";
 import { ApiError } from "../../utils/apiError.js";
 
 export const registerCompany = async (req, res, next) => {
+    let company;
+    let companyAdmin;
+
     try {
-        const {
+        const { name, email, phone, vatNumber, address, logo, admin } = req.body;
+        const requiredValues = [name, email, phone, vatNumber, admin?.name, admin?.email, admin?.phone, admin?.password];
+
+        if (requiredValues.some((value) => typeof value !== "string" || !value.trim())) {
+            return next(new ApiError(400, "Company details and admin name, email, phone, and password are required"));
+        }
+
+        if (admin.password.length < 8) {
+            return next(new ApiError(400, "Admin password must be at least 8 characters long"));
+        }
+
+        const passwordHash = await bcrypt.hash(admin.password, 12);
+        company = new Company({
             name,
             email,
             phone,
             vatNumber,
             address,
-            logo,
-            adminFirstName,
-            adminLastName,
-            adminEmail,
-            adminPhone,
-            adminPassword
-        } = req.body;
-
-        // 1. Validation
-        if (!name || !email || !phone || !vatNumber) {
-            return next(new ApiError(400, "Company name, email, phone, and vatNumber are required"));
-        }
-
-        if (!adminFirstName || !adminLastName || !adminEmail || !adminPhone || !adminPassword) {
-            return next(new ApiError(400, "Admin first_name, last_name, email, phone, and password are required"));
-        }
-
-        // 2. Check duplicate company
-        const existingCompany = await Company.findOne({
-            $or: [
-                { name },
-                { email },
-                { vatNumber }
-            ]
+            logo
         });
-
-        if (existingCompany) {
-            return next(new ApiError(400, "A company with this name, email, or VAT number is already registered"));
-        }
-
-        // 3. Check duplicate admin user
-        const existingUser = await User.findOne({
-            $or: [
-                { email: adminEmail.toLowerCase() },
-                { phone: adminPhone }
-            ]
-        });
-
-        if (existingUser) {
-            return next(new ApiError(400, "An admin user with this email or phone already exists"));
-        }
-
-        // 4. Create Company (pending)
-        const company = new Company({
-            name,
-            email,
-            phone,
-            vatNumber,
-            address,
-            logo,
-            status: "pending",
-            walletBalance: 0
-        });
-
-        // 5. Create User (pending company_admin)
-        const user = new User({
-            first_name: adminFirstName,
-            last_name: adminLastName,
-            email: adminEmail,
-            phone: adminPhone,
-            password: adminPassword, // will be hashed automatically by pre-save middleware
+        companyAdmin = await User.create({
+            name: admin.name,
+            email: admin.email,
+            phone: admin.phone,
+            password: passwordHash,
             role: "company_admin",
             company: company._id,
             userStatus: "pending",
             isApproved: false
         });
-
-        // 6. Link user to company and save both
-        company.user = user._id;
-
-        await Promise.all([
-            company.save(),
-            user.save()
-        ]);
+        company.admins.addToSet(companyAdmin._id);
+        await company.save();
 
         res.status(201).json({
             success: true,
-            message: "Company registration submitted successfully. It is pending Super Admin approval.",
+            message: "Company registration submitted for approval",
             data: {
-                company: {
-                    _id: company._id,
-                    name: company.name,
-                    status: company.status
-                },
+                _id: company._id,
+                name: company.name,
+                email: company.email,
+                status: company.status,
                 admin: {
-                    _id: user._id,
-                    first_name: user.first_name,
-                    last_name: user.last_name,
-                    email: user.email,
-                    role: user.role
+                    _id: companyAdmin._id,
+                    name: companyAdmin.name,
+                    email: companyAdmin.email,
+                    phone: companyAdmin.phone,
+                    role: companyAdmin.role,
+                    userStatus: companyAdmin.userStatus
                 }
             }
         });
-
     } catch (error) {
-        next(new ApiError(500, error.message));
+        if (companyAdmin?._id) {
+            await User.deleteOne({ _id: companyAdmin._id }).catch(() => {});
+        }
+        if (company?._id) {
+            await Company.deleteOne({ _id: company._id }).catch(() => {});
+        }
+        if (error.code === 11000) {
+            return next(new ApiError(409, "A company or user with the same name, email, phone, or VAT number is already registered"));
+        }
+        next(error);
     }
-};
+};

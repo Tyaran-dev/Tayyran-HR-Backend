@@ -1,26 +1,16 @@
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
-import http from "http";
+import bodyParser from "body-parser";
+import authRoute from "./routes/auth/auth.route.js";
+import flightRoutes from "./routes/flights/flights.route.js";
+import companyRoutes from "./routes/company/company.route.js";
 import cookieParser from "cookie-parser";
 import connectMongoDB from "./db/connectMongoDB.js";
 import { ApiError } from "./utils/apiError.js";
-import { initSocket } from "./socket/socket.js";
 
-// Routes
-import flightRoutes from "./routes/flights/flights.route.js";
-import authRoutes from "./routes/auth/auth.route.js";
-import companyRoutes from "./routes/company/company.route.js";
-import bookingRoutes from "./routes/bookings/booking.route.js";
-import employeeRoutes from "./routes/employees/employee.route.js";
-import userRoutes from "./routes/users/user.route.js";
-
-dotenv.config();
 const app = express();
-const server = http.createServer(app);
-
-// Initialize Socket.io
-initSocket(server);
+dotenv.config();
 
 const allowedOrigins = [
   'http://localhost:4025',  // development
@@ -41,18 +31,17 @@ app.use(cors({
 }));
 const PORT = process.env.PORT || 3000;
 
+
 app.use(cookieParser());
+
 app.use(express.json());
 
-// Routes configuration
+// rotues here 
+app.use("/auth", authRoute);
 app.use("/flights", flightRoutes);
-app.use("/auth", authRoutes);
 app.use("/companies", companyRoutes);
-app.use("/bookings", bookingRoutes);
-app.use("/employees", employeeRoutes);
-app.use("/users", userRoutes);
 
-// Error-handling middleware
+
 app.use((err, req, res, next) => {
   console.error("🔥 ERROR:", err);
 
@@ -66,13 +55,12 @@ app.use((err, req, res, next) => {
   // Unexpected error (not ApiError)
   return res.status(500).json({
     status: "error",
-    message: err.message || "Something went wrong on the server",
+    message: "Something went wrong on the server",
   });
 });
 
-server.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   connectMongoDB();
 });
-
 

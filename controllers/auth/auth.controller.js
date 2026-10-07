@@ -1,70 +1,241 @@
 import User from "../../models/User.model.js";
-import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt"
 import { ApiError } from "../../utils/apiError.js";
+import jwt from "jsonwebtoken";
+import sendEmail from "../../utils/sendEmail.js";
+import crypto from "crypto";
+import { generateTokenAndSetCookie } from "../../utils/generateToken.js";
+
+
+const generateVerificationCode = () => {
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const hashedVerifyCode = crypto.createHash("sha256").update(verificationCode).digest("hex");
+    return { verificationCode, hashedVerifyCode };
+};
+
+export const verifyEmail = async (req, res, next) => {
+    const { verifyCode } = req.body;
+    if (!verifyCode) {
+        return next(new ApiError(400, "Verification code is required"));
+    }
+
+    const hashedCode = crypto
+        .createHash("sha256")
+        .update(verifyCode)
+        .digest("hex");
+
+    console.log(hashedCode, "HASHED CODE");
+
+    const user = await User.findOne({
+        emailVerificationCode: hashedCode,
+        emailVerificationExpiry: { $gt: Date.now() }
+    }).exec();
+    console.log(user, "USER IN VERIFY EMAIL");
+    if (!user) {
+        return next(new ApiError(400, "Invalid or expired verification code"));
+    }
+
+    // Mark email as verified
+    user.emailVerified = true;
+    user.emailVerificationCode = undefined;
+    user.emailVerificationExpiry = undefined;
+
+    await user.save();
+
+    res.status(200).json({
+        status: "Success",
+        message: "Email verified successfully"
+    });
+};
+
 
 export const login = async (req, res, next) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        throw new ApiError(400, "Email and password are required");
+    }
+
+    const foundUser = await User.findOne({ email }).exec();
+
+    if (!foundUser) {
+        throw new ApiError(401, "User does not exist'");
+    };
+
+    const match = await bcrypt.compare(password, foundUser.password);
+
+    if (!match) {
+        throw new ApiError(401, "Invalid credentials");
+    }
+
+    const { accessToken, refreshToken } = generateTokenAndSetCookie(foundUser, res);
+    res.json({
+        accessToken,
+        refreshToken,  // mobile uses this
+        email: foundUser.email,
+        emailVerified: foundUser.emailVerified,
+    });
+};
+
+export const logout = async (req, res, next) => {
+    await User.findOneAndUpdate(
+        { _id: req.user._id },
+        { $inc: { tokenVersion: 1 } },   // increase token version by 1
+        { new: true }
+    );
+
+    const isProduction =
+        process.env.NODE_ENV === "production" ||
+        process.env.FRONTEND_URL?.startsWith("https://");
+
+    res.clearCookie("jwt", {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? "None" : "Lax"
+    });
+
+    res.clearCookie("admin_otp_session", {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? "None" : "Lax"
+    });
+
+    res.json({ message: "Logged out successfully" });
+}
+
+export const refreshToken = async (req, res, next) => {
     try {
-        const { email, password } = req.body;
+        // 1️⃣ Get refresh token from Cookie (Web)
+        const cookieToken = req.cookies?.jwt;
 
-        if (!email || !password) {
-            return next(new ApiError(400, "Email and password are required"));
+        // 2️⃣ From Authorization Header (Mobile)
+        const authHeader = req.headers.authorization;
+        const headerToken =
+            authHeader && authHeader.startsWith("Bearer ")
+                ? authHeader.split(" ")[1]
+                : null;
+
+
+        // 3️⃣  from JSON Body (Mobile)
+        const bodyToken = req.body?.refreshToken;
+
+        const refreshToken = cookieToken || headerToken || bodyToken;
+
+        if (!refreshToken) {
+            throw new ApiError(401, "Unauthorized - Refresh token is required");
         }
 
-        // Find user by email
-        const user = await User.findOne({ email: email.toLowerCase() });
-        if (!user) {
-            return next(new ApiError(401, "Invalid email or password"));
-        }
-
-        // Verify user status (super admin is always active, or we check if user is active)
-        if (user.role !== "super_admin" && user.userStatus !== "active") {
-            return next(new ApiError(403, `Account status is: ${user.userStatus}. Please contact support.`));
-        }
-
-        // Verify password
-        const isMatch = await user.comparePassword(password);
-        if (!isMatch) {
-            return next(new ApiError(401, "Invalid email or password"));
-        }
-
-        // Generate JWT Token matching the structure in protectedRoute.js
-        const accessToken = jwt.sign(
-            {
-                UserInfo: {
-                    id: user._id,
-                    tokenVersion: user.tokenVersion || 0
+        // 4️⃣ Verify refresh token
+        jwt.verify(
+            refreshToken,
+            process.env.JWT_Refresh_Token,
+            async (err, decoded) => {
+                if (err) {
+                    return next(new ApiError(403, "Forbidden - Invalid refresh token"));
                 }
-            },
-            process.env.JWT_Access_Token,
-            { expiresIn: "1d" } // 1 day expiration
-        );
 
-        res.status(200).json({
-            success: true,
-            token: accessToken,
-            user: {
-                _id: user._id,
-                first_name: user.first_name,
-                last_name: user.last_name,
-                email: user.email,
-                role: user.role,
-                company: user.company,
-                userStatus: user.userStatus
+                const foundUser = await User.findById(decoded.UserInfo.id).exec();
+
+                if (!foundUser) {
+                    throw new ApiError(401, "Unauthorized ");
+                }
+
+                // 6️⃣ Create a new access token
+                const accessToken = jwt.sign(
+                    {
+                        UserInfo: {
+                            id: foundUser._id,
+                            tokenVersion: foundUser.tokenVersion
+                        },
+                    },
+                    process.env.JWT_Access_Token,
+                    { expiresIn: "30m" } // recommended
+                );
+
+                // 7️⃣ Return access token (same for Web + Mobile)
+                return res.json({ accessToken });
             }
-        });
+        )
+
     } catch (error) {
-        next(new ApiError(500, error.message));
+        console.error(error);
+        throw new ApiError(500, error.message);
     }
+}
+
+export const getMe = async (req, res, next) => {
+    if (!req.user) {
+        throw new ApiError(401, "Not authorized");
+    }
+
+    const user = await User.findById(req.user._id)
+        .populate({
+            path: "bookings",
+            options: {
+                sort: {
+                    createdAt: -1,
+                },
+            },
+        });
+
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
+
+    res.status(200).json({
+        user,
+    });
 };
 
-export const getProfile = async (req, res, next) => {
-    try {
-        // req.user is already populated by protectedRoute middleware
-        res.status(200).json({
-            success: true,
-            data: req.user
-        });
-    } catch (error) {
-        next(new ApiError(500, error.message));
+export const reSendVerificationCode = async (req, res, next) => {
+    const { email } = req.body;
+    if (!email) {
+        return next(new ApiError(400, "Email is required"));
     }
-};
+    const verificationTimeMinutes = 10;
+
+    const user = await User.findOne({ email }).exec();
+    if (!user) {
+        return next(new ApiError(404, "User with this email does not exist"));
+    }
+    if (user.emailVerified) {
+        return next(new ApiError(400, "Email is already verified"));
+    }
+    // ==== CHECK IF USER MUST WAIT ====
+    if (user.emailVerificationExpiry && user.emailVerificationExpiry > Date.now()) {
+        const remainingMs = user.emailVerificationExpiry - Date.now();
+        const remainingMin = Math.ceil(remainingMs / 1000 / 60);
+
+        return next(
+            new ApiError(
+                429,
+                `You must wait ${remainingMin} minute(s) before requesting a new verification code`
+            )
+        );
+    }
+
+
+    const { verificationCode, hashedVerifyCode } = generateVerificationCode();
+    user.emailVerificationCode = hashedVerifyCode;
+    user.emailVerificationExpiry = Date.now() + 1000 * 60 * verificationTimeMinutes; // 10 minutes 
+
+    await user.save();
+
+    // send email
+    const response = await sendEmail({
+        email,
+        subject: "Verify your email",
+        message: `
+            <h2>Hello ${user.first_name}</h2>
+            <p>Your verification code is:</p>
+            <h1 style="letter-spacing: 4px">${verificationCode}</h1>
+            <p>This code expires in ${verificationTimeMinutes} minutes.</p>
+        `
+    });
+
+    res.status(200).json({
+        status: "Success",
+        message: "Verification code sent successfully",
+        info: response
+    });
+}
