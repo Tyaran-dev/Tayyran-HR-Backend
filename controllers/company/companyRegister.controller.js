@@ -2,6 +2,15 @@ import bcrypt from "bcryptjs";
 import Company from "../../models/Company.model.js";
 import User from "../../models/User.model.js";
 import { ApiError } from "../../utils/apiError.js";
+import sendEmail from "../../utils/sendEmail.js";
+
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+}[character]));
 
 export const registerCompany = async (req, res, next) => {
     let company;
@@ -40,6 +49,27 @@ export const registerCompany = async (req, res, next) => {
         });
         company.admins.addToSet(companyAdmin._id);
         await company.save();
+
+        if (!process.env.ADMIN_EMAIL) {
+            console.error("ADMIN_EMAIL is not configured; company registration notification was not sent");
+        } else {
+            try {
+                await sendEmail({
+                    email: process.env.ADMIN_EMAIL,
+                    subject: "New company registration awaiting review",
+                    message: `
+                        <h2>New company registration</h2>
+                        <p>A company has registered and is waiting for review.</p>
+                        <p><strong>Company:</strong> ${escapeHtml(company.name)}</p>
+                        <p><strong>Company email:</strong> ${escapeHtml(company.email)}</p>
+                        <p><strong>Company admin:</strong> ${escapeHtml(companyAdmin.name)}</p>
+                        <p><strong>Admin email:</strong> ${escapeHtml(companyAdmin.email)}</p>
+                    `
+                });
+            } catch (emailError) {
+                console.error("Failed to send company registration notification:", emailError);
+            }
+        }
 
         res.status(201).json({
             success: true,

@@ -1,5 +1,14 @@
 import Company from "../../models/Company.model.js";
 import { ApiError } from "../../utils/apiError.js";
+import sendEmail from "../../utils/sendEmail.js";
+
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+}[character]));
 
 export const getPendingCompanies = async (req, res, next) => {
     try {
@@ -53,29 +62,22 @@ export const approveCompany = async (req, res, next) => {
         }
         await Promise.all([company.save(), ...companyAdmins.map((admin) => admin.save())]);
 
-        // 6. Send approval email to company admin
-        // try {
-        //     await sendEmail({
-        //         to: company.email,
-        //         subject: 'Company Approved - Welcome to Tayyran-HR',
-        //         html: `
-        //             <h2>Congratulations! Your company has been approved</h2>
-        //             <p>Dear ${companyAdmin.name},</p>
-        //             <p>Your company <strong>${company.name}</strong> has been successfully approved and activated.</p>
-        //             <p>You can now log in and start managing your travel bookings.</p>
-        //             <p><strong>Company Details:</strong></p>
-        //             <ul>
-        //                 <li>Company Name: ${company.name}</li>
-        //                 <li>Email: ${company.email}</li>
-        //                 <li>Wallet Balance: $${company.walletBalance}</li>
-        //             </ul>
-        //             <p>Best regards,<br>Tayyran-HR Team</p>
-        //         `
-        //     });
-        // } catch (emailError) {
-        //     console.error('Failed to send approval email:', emailError);
-        //     // Don't fail the approval if email fails
-        // }
+        await Promise.all(companyAdmins.map(async (companyAdmin) => {
+            try {
+                await sendEmail({
+                    email: companyAdmin.email,
+                    subject: "Your company registration has been approved",
+                    message: `
+                        <h2>Company registration approved</h2>
+                        <p>Hello ${escapeHtml(companyAdmin.name)},</p>
+                        <p>Your company, <strong>${escapeHtml(company.name)}</strong>, has been approved.</p>
+                        <p>Your company admin account is now active and you can sign in to Tayyran HR.</p>
+                    `
+                });
+            } catch (emailError) {
+                console.error(`Failed to send company approval email to ${companyAdmin.email}:`, emailError);
+            }
+        }));
 
         res.status(200).json({
             success: true,
@@ -144,25 +146,25 @@ export const rejectCompany = async (req, res, next) => {
             ...companyAdmins.map((admin) => admin.save())
         ]);
 
-        // 7. Send rejection email
-        // try {
-        //     await sendEmail({
-        //         to: company.email,
-        //         subject: 'Company Registration - Application Status',
-        //         html: `
-        //             <h2>Company Registration Update</h2>
-        //             <p>Dear ${companyAdmin.name},</p>
-        //             <p>We regret to inform you that your company registration for <strong>${company.name}</strong> has not been approved at this time.</p>
-        //             <p><strong>Reason:</strong></p>
-        //             <p>${rejectionReason}</p>
-        //             <p>If you have any questions or would like to reapply, please contact our support team.</p>
-        //             <p>Best regards,<br>Tayyran-HR Team</p>
-        //         `
-        //     });
-        // } catch (emailError) {
-        //     console.error('Failed to send rejection email:', emailError);
-        //     // Don't fail the rejection if email fails
-        // }
+         await Promise.all(companyAdmins.map(async (companyAdmin) => {
+            try {
+                await sendEmail({
+                    email: companyAdmin.email,
+                    subject: "Your company registration has been rejected",
+                    message: `
+                        <h2>Company registration rejected</h2>
+                        <p>Hello ${escapeHtml(companyAdmin.name)},</p>
+                        <p>Your company, <strong>${escapeHtml(company.name)}</strong>, has been rejected.</p>
+                        <p><strong>Reason:</strong></p>
+                        <p>${rejectionReason}</p>
+                        <p>If you have any questions or would like to reapply, please contact our support team.</p>
+                        <p>Best regards,<br>Tayyran-HR Team</p>
+                    `
+                });
+            } catch (emailError) {
+                console.error(`Failed to send company rejection email to ${companyAdmin.email}:`, emailError);
+            }
+        }));
 
         res.status(200).json({
             success: true,
