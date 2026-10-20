@@ -68,6 +68,13 @@ export const login = async (req, res, next) => {
         throw new ApiError(401, "Invalid credentials");
     }
 
+    if (foundUser.userStatus !== "active") {
+        const message = foundUser.userStatus === "suspended"
+            ? "Your account is suspended"
+            : "Your account is not active yet";
+        throw new ApiError(403, message);
+    }
+
     const { accessToken, refreshToken } = generateTokenAndSetCookie(foundUser, res);
     res.json({
         accessToken,
@@ -138,6 +145,10 @@ export const refreshToken = async (req, res, next) => {
 
                 if (!foundUser) {
                     throw new ApiError(401, "Unauthorized ");
+                }
+
+                if (foundUser.userStatus !== "active") {
+                    return next(new ApiError(403, "Your account is not active"));
                 }
 
                 // 6️⃣ Create a new access token

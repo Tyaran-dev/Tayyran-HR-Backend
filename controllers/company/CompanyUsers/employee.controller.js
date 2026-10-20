@@ -1,68 +1,9 @@
 import bcrypt from "bcryptjs";
-import Company from "../../models/Company.model.js";
-import User from "../../models/User.model.js";
-import Employee from "../../models/Employee.model.js";
-import { ApiError } from "../../utils/apiError.js";
+import Company from "../../../models/Company.model.js";
+import User from "../../../models/User.model.js";
+import Employee from "../../../models/Employee.model.js";
+import { ApiError } from "../../../utils/apiError.js";
 
-export const createCompanyHr = async (req, res, next) => {
-    try {
-        const companyAdmin = req.user;
-        if (!companyAdmin || companyAdmin.role !== "company_admin") {
-            return next(new ApiError(403, "Only company admins can create company HR users"));
-        }
-
-        const { name, email, phone, password } = req.body;
-        const requiredValues = [name, email, phone, password];
-        if (requiredValues.some((value) => typeof value !== "string" || !value.trim())) {
-            return next(new ApiError(400, "Name, email, phone, and password are required"));
-        }
-
-        if (password.length < 8) {
-            return next(new ApiError(400, "Password must be at least 8 characters long"));
-        }
-
-        const company = await Company.findOne({ _id: companyAdmin.company, status: "active" });
-        if (!company) {
-            return next(new ApiError(403, "Your company is not active"));
-        }
-
-        const hrUser = await User.create({
-            name,
-            email,
-            phone,
-            password: await bcrypt.hash(password, 12),
-            role: "company_hr",
-            company: company._id,
-            userStatus: "active",
-            isApproved: true
-        });
-        company.users.addToSet(hrUser._id);
-        try {
-            await company.save();
-        } catch (error) {
-            await User.deleteOne({ _id: hrUser._id });
-            throw error;
-        }
-
-        res.status(201).json({
-            success: true,
-            message: "Company HR user created successfully",
-            data: {
-                _id: hrUser._id,
-                name: hrUser.name,
-                email: hrUser.email,
-                phone: hrUser.phone,
-                role: hrUser.role,
-                company: hrUser.company
-            }
-        });
-    } catch (error) {
-        if (error.code === 11000) {
-            return next(new ApiError(409, "A user with the same email or phone already exists"));
-        }
-        next(error);
-    }
-};
 
 export const addEmployeeToCompany = async (req, res, next) => {
     try {
@@ -183,6 +124,35 @@ export const getAllEmployees = async (req, res, next) => {
         next(error);
     }
 };
+
+// ✅ Get Employee by ID
+export const getEmployeeById = async (req, res, next) => {
+    try {
+        const companyUser = req.user;
+        if (
+            !companyUser ||
+            (companyUser.role !== "company_admin" && companyUser.role !== "company_hr")
+        ) {
+            return next(new ApiError(403, "Only company admins and HR users can view employees"));
+        }
+
+        const { id } = req.params;
+
+
+        const employee = await Employee.findOne({ _id: id, company: companyUser.company });
+        if (!employee) {
+            return next(new ApiError(404, "Employee not found"));
+        }
+
+        res.status(200).json({
+            success: true,
+            data: employee
+        });
+    } catch (error) {
+        next(new ApiError(500, error.message));
+    }
+};
+
 
 export const updateEmployeeInfo = async (req, res, next) => {
     try {

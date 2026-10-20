@@ -44,6 +44,13 @@ export const protectedRoute = async (req, res, next) => {
             return next(new ApiError(401, "User not found"));
         }
 
+        if (user.userStatus !== "active") {
+            const message = user.userStatus === "suspended"
+                ? "Your account is suspended"
+                : "Your account is not active";
+            return next(new ApiError(403, message));
+        }
+
         // Check token version (for logout all devices feature)
         if (decoded.UserInfo.tokenVersion !== user.tokenVersion) {
             return next(new ApiError(401, "Token invalidated"));

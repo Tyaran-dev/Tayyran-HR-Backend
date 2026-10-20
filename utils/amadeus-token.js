@@ -3,9 +3,9 @@ import { ApiError } from './apiError.js';
 
 export const getAmadeusToken = async () => {
     try {
-        const clientId = process.env.AMADEUS_TEST_API_KEY,
-            clientSecret = process.env.AMADEUS_TEST_API_SECRET,
-            baseUrl = process.env.AMADEUS_TEST_URL;
+        const clientId = process.env.AMADEUS_API_KEY,
+            clientSecret = process.env.AMADEUS_API_SECRET,
+            baseUrl = process.env.AMADEUS_BASE_URL;
 
 
         if (!clientId || !clientSecret) {
