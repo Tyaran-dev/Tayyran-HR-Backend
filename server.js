@@ -5,6 +5,7 @@ import bodyParser from "body-parser";
 import authRoute from "./routes/auth/auth.route.js";
 import flightRoutes from "./routes/flights/flights.route.js";
 import companyRoutes from "./routes/company/company.route.js";
+import bookingRoutes from "./routes/bookings/booking.route.js";
 import cookieParser from "cookie-parser";
 import connectMongoDB from "./db/connectMongoDB.js";
 import { ApiError } from "./utils/apiError.js";
@@ -40,6 +41,7 @@ app.use(express.json());
 app.use("/auth", authRoute);
 app.use("/flights", flightRoutes);
 app.use("/companies", companyRoutes);
+app.use("/bookings", bookingRoutes);
 
 
 app.use((err, req, res, next) => {

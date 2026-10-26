@@ -59,6 +59,12 @@ const bookingSchema = new mongoose.Schema({
         ref: 'User',
         default: null  // set when admin approves/rejects
     },
+    rejectedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
+    },
+    rejectedAt: Date,
 
     // ── BOOKING LIFECYCLE STATUS ─────────────────────────
     // Tracks WHERE the booking is in the process

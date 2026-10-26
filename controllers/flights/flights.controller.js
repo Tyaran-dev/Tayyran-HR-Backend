@@ -4,6 +4,9 @@ import { getAmadeusToken } from "../../utils/amadeus-token.js";
 import Airport from "../../models/airport.model.js";
 import Airline from "../../models/Airline.model.js";
 import { whiteListAirLines } from "../../data/whiteListAirLines.js";
+import Booking from "../../models/Booking.model.js";
+import Company from "../../models/Company.model.js";
+import crypto from "crypto";
 
 // helpers
 import { formatDuration, formatTime, getBagInfo, generateTravllers, filterWhiteList, buildFormatedResponse } from "../../utils/helpers.js";
@@ -23,10 +26,12 @@ export const flightOffers = async (req, res, next) => {
             flightType,
             directFlight,
         } = req.body;
-        const baseUrl = process.env.AMADEUS_TEST_URL;
+        const baseUrl = process.env.AMADEUS_BASE_URL;
 
         // Validate and prepare request to Amadeus API
         const token = await getAmadeusToken();
+
+        console.log("Amadeus Token:", token); // Log the token for debugging
         const travelers = generateTravllers(adults, children, infants);
 
         if (infants > adults) {
@@ -165,125 +170,66 @@ export const flightPricing = async (req, res, next) => {
 
 export const flightBooking = async (req, res, next) => {
     try {
-        const token = await getAmadeusToken();
         const { flightOffer, travelers, ticketingAgreement } = req.body;
-        const baseUrl = process.env.AMADEUS_BASE_URL;
-        const cardNumber = process.env.EASYPAY_CARD_NUMBER;
-        const cardExpiry = process.env.EASYPAY_CARD_EXPIRY;
-
-
-        if (!flightOffer || !travelers) {
-            return next(new ApiError(400, "Missing flightOffer or travelers"));
+        const companyUser = req.user;
+        if (!companyUser || companyUser.role !== "company_hr") {
+            return next(new ApiError(403, "Only company HR users can submit flight bookings for approval"));
+        }
+        if (!flightOffer || !Array.isArray(travelers) || travelers.length === 0) {
+            return next(new ApiError(400, "A flight offer and at least one traveler are required"));
         }
 
-        // Build payload
-        const payload = {
-            data: {
-                type: "flight-order",
-                flightOffers: [flightOffer],
+        const selectedOffer = flightOffer.originalResponse || flightOffer;
+        const quotedAmount = Number(selectedOffer.price?.grandTotal ?? selectedOffer.price?.total);
+        const commissionAmount = quotedAmount * presentageCommission / 100;
+        const priceWithCommission = quotedAmount + commissionAmount;
+        const finalPrice = priceWithCommission + (commissionAmount * presentageVat / 100);
+        if (!selectedOffer.id || !Number.isFinite(finalPrice) || finalPrice <= 0) {
+            return next(new ApiError(400, "The flight offer is missing a valid ID or price"));
+        }
+
+        const bookingTravelers = travelers.map((traveler) => ({
+            firstName: traveler.name?.firstName ?? traveler.firstName,
+            lastName: traveler.name?.lastName ?? traveler.lastName,
+            email: traveler.contact?.emailAddress ?? traveler.email,
+            passportNumber: traveler.documents?.find((document) => document.documentType === "PASSPORT")?.number
+        }));
+        if (bookingTravelers.some((traveler) => !traveler.firstName || !traveler.lastName)) {
+            return next(new ApiError(400, "Every traveler must include a first and last name"));
+        }
+
+        const company = await Company.findOne({ _id: companyUser.company, status: "active" });
+        if (!company) {
+            return next(new ApiError(403, "Your company is not active"));
+        }
+
+        const booking = await Booking.create({
+            user: companyUser._id,
+            company: company._id,
+            bookingType: "flight",
+            travelers: bookingTravelers,
+            bookingPayload: {
+                flightOffer: selectedOffer,
                 travelers,
-                formOfPayments: [
-                    {
-                        creditCard: {
-                            brand: "EASYPAY",
-                            number: cardNumber,
-                            expiryDate: cardExpiry,
-                            flightOfferIds: [flightOffer.id],
-                        },
-                    },
-                ],
-                ...(ticketingAgreement &&
-                    Object.keys(ticketingAgreement).length > 0 && {
-                    ticketingAgreement,
-                }),
+                ticketingAgreement: ticketingAgreement || null
             },
-        };
-
-        console.log(flightOffer, "flightOffer from controller 2");
-        console.log(payload, "payload 3");
-
-        // 1️⃣ Create flight order
-        const response = await axios.post(
-            `${baseUrl}/v1/booking/flight-orders`,
-            payload,
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    "Content-Type": "application/json",
-                },
-            }
-        );
-
-        let orderData = response.data; // mutable
-        const flightOrderId = orderData.data.id;
-
-        console.log(orderData.data, "after create order");
-
-        console.log("create order from controlller 4");
-
-
-        // 2️⃣ Apply FM commission
-        const commissionPayload = {
-            data: {
-                type: "flight-order",
-                commissions: [
-                    {
-                        controls: ["MANUAL"],
-                        values: [
-                            {
-                                commissionType: "NEW",
-                                percentage: 0.0, // FM0
-                            },
-                        ],
-                    },
-                ],
-            },
-        };
-
-        await axios.patch(
-            `${baseUrl}/v1/booking/flight-orders/${flightOrderId}`,
-            commissionPayload,
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    "Content-Type": "application/json",
-                },
-            }
-        );
-
-        console.log("fm added 5");
-
-        // 3️⃣ Issue ticket
-        const issuanceRes = await axios.post(
-            `${baseUrl}/v1/booking/flight-orders/${flightOrderId}/issuance`,
-            {}, // no payload needed for issuance
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    "Content-Type": "application/json",
-                },
-            }
-        );
-
-        console.log("issuance done 6");
-        
-        // 4️⃣ Return issuance response (contains ticket info)
-        return res.status(201).json({
-            message:
-                "Flight order created, commission applied, and ticket issued successfully",
-            order: issuanceRes.data,
+            bookingReference: `TYR-HR-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
+            approvalStatus: "pending",
+            status: "pending_approval",
+            finalAmount: finalPrice,
+            currency: selectedOffer.price.currency || "SAR"
         });
 
+        return res.status(201).json({
+            success: true,
+            message: "Flight booking submitted for company admin approval",
+            data: booking
+        });
 
     } catch (error) {
         const errorMessage = error.response?.data || error.message;
-        console.error("Amadeus API Error:", errorMessage);
-        next(
-            new ApiError(
-                error.response?.status || 500,
-                errorMessage || "Error booking flights"
-            )
-        );
+        console.error("Create Booking Error:", errorMessage);
+        return next(new ApiError(500, errorMessage));
     }
 }
 

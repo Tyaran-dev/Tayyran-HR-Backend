@@ -81,6 +81,7 @@ export const login = async (req, res, next) => {
         refreshToken,  // mobile uses this
         email: foundUser.email,
         emailVerified: foundUser.emailVerified,
+        role: foundUser.role
     });
 };
 
@@ -180,14 +181,7 @@ export const getMe = async (req, res, next) => {
     }
 
     const user = await User.findById(req.user._id)
-        .populate({
-            path: "bookings",
-            options: {
-                sort: {
-                    createdAt: -1,
-                },
-            },
-        });
+ 
 
     if (!user) {
         throw new ApiError(404, "User not found");
