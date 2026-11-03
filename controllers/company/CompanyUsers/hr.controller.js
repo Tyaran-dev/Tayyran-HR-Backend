@@ -5,6 +5,29 @@ import Employee from "../../../models/Employee.model.js";
 import { ApiError } from "../../../utils/apiError.js";
 
 
+export const getCompanyHrUsers = async (req, res, next) => {
+    try {
+        const companyAdmin = req.user;
+        if (!companyAdmin || companyAdmin.role !== "company_admin") {
+            return next(new ApiError(403, "Only company admins can view company HR users"));
+        }
+
+        const hrUsers = await User.find({ company: companyAdmin.company, role: "company_hr" })
+            .select("name email phone role company userStatus isApproved emailVerified createdAt updatedAt")
+            .exec();
+        res.status(200).json({
+            success: true,
+            message: "Company HR users retrieved successfully",
+            data: hrUsers
+        });
+    } catch (error) {
+        if (error) {
+            return next(new ApiError(500, "Get All Company HR Users failed", error.message));
+        }
+        next(error);
+    }
+};
+
 export const createCompanyHr = async (req, res, next) => {
     try {
         const companyAdmin = req.user;

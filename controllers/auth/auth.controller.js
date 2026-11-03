@@ -79,9 +79,8 @@ export const login = async (req, res, next) => {
     res.json({
         accessToken,
         refreshToken,  // mobile uses this
-        email: foundUser.email,
-        emailVerified: foundUser.emailVerified,
-        role: foundUser.role
+        role: foundUser.role,
+        userStatus: foundUser.userStatus
     });
 };
 
