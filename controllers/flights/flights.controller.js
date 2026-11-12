@@ -172,8 +172,9 @@ export const flightBooking = async (req, res, next) => {
     try {
         const { flightOffer, travelers, ticketingAgreement } = req.body;
         const companyUser = req.user;
-        if (!companyUser || companyUser.role !== "company_hr") {
-            return next(new ApiError(403, "Only company HR users can submit flight bookings for approval"));
+        console.log(companyUser)
+        if (!companyUser || companyUser.role !== "company_hr" && companyUser.role !== "company_admin") {
+            return next(new ApiError(403, "Only company HR or ADMIN users can submit flight bookings for approval"));
         }
         if (!flightOffer || !Array.isArray(travelers) || travelers.length === 0) {
             return next(new ApiError(400, "A flight offer and at least one traveler are required"));
@@ -203,28 +204,34 @@ export const flightBooking = async (req, res, next) => {
             return next(new ApiError(403, "Your company is not active"));
         }
 
-        const booking = await Booking.create({
-            user: companyUser._id,
-            company: company._id,
-            bookingType: "flight",
-            travelers: bookingTravelers,
-            bookingPayload: {
-                flightOffer: selectedOffer,
-                travelers,
-                ticketingAgreement: ticketingAgreement || null
-            },
-            bookingReference: `TYR-HR-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
-            approvalStatus: "pending",
-            status: "pending_approval",
-            finalAmount: finalPrice,
-            currency: selectedOffer.price.currency || "SAR"
-        });
+        if (companyUser.role === "company_hr") {
 
-        return res.status(201).json({
-            success: true,
-            message: "Flight booking submitted for company admin approval",
-            data: booking
-        });
+            const booking = await Booking.create({
+                user: companyUser._id,
+                company: company._id,
+                bookingType: "flight",
+                travelers: bookingTravelers,
+                bookingPayload: {
+                    flightOffer: selectedOffer,
+                    travelers,
+                    ticketingAgreement: ticketingAgreement || null
+                },
+                bookingReference: `TYR-HR-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
+                approvalStatus: "pending",
+                status: "pending_approval",
+                finalAmount: finalPrice,
+                currency: selectedOffer.price.currency || "SAR"
+            });
+
+            return res.status(201).json({
+                success: true,
+                message: "Flight booking submitted for company admin approval",
+                data: booking
+            });
+        } else if (companyUser.role === "company_admin") {
+            return next(new ApiError(501, "Company admin booking flow is not implemented yet."));
+        }
+
 
     } catch (error) {
         const errorMessage = error.response?.data || error.message;

@@ -108,6 +108,7 @@ export const approveFlightBooking = async (req, res, next) => {
 
         const pricedOffer = pricingResponse.data?.data?.flightOffers?.[0];
         const amount = Number(pricedOffer?.price?.grandTotal ?? pricedOffer?.price?.total);
+        // add price after commision here
         const currency = pricedOffer?.price?.currency;
         if (!pricedOffer || !Number.isFinite(amount) || amount <= 0 || !currency) {
             return next(new ApiError(502, "Flight provider returned an invalid price"));
