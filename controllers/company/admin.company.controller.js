@@ -146,7 +146,7 @@ export const rejectCompany = async (req, res, next) => {
             ...companyAdmins.map((admin) => admin.save())
         ]);
 
-         await Promise.all(companyAdmins.map(async (companyAdmin) => {
+        await Promise.all(companyAdmins.map(async (companyAdmin) => {
             try {
                 await sendEmail({
                     email: companyAdmin.email,
@@ -238,5 +238,94 @@ export const getAllCompanies = async (req, res, next) => {
         });
     } catch (error) {
         return next(new ApiError(500, error.message));
+    }
+}
+
+export const changeWalletBalance = async (req, res, next) => {
+    const user = req.user;
+    if (!user || user.role !== 'super_admin') {
+        return next(new ApiError(403, 'Only super admin can Change The Wallet Balance'));
+    }
+
+    const { amount, operation, description } = req.body || {};
+    if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
+        return next(new ApiError(400, 'Amount must be a positive number'));
+    }
+    if (operation !== 'credit' && operation !== 'debit') {
+        return next(new ApiError(400, 'Operation must be either "credit" or "debit"'));
+    }
+    if (typeof description !== 'string' || !description.trim()) {
+        return next(new ApiError(400, 'A description is required for the wallet adjustment'));
+    }
+
+    const balanceChange = operation === 'credit' ? amount : -amount;
+    const balanceExpression = balanceChange > 0
+        ? { $add: [{ $ifNull: ['$walletBalance', 0] }, amount] }
+        : { $subtract: [{ $ifNull: ['$walletBalance', 0] }, amount] };
+    const historyEntry = {
+        amount: balanceChange,
+        date: new Date(),
+        description: description.trim(),
+        performedBy: user._id
+    };
+
+    try {
+        const company = await Company.findOneAndUpdate(
+            {
+                _id: req.params.companyId,
+                ...(operation === 'debit' ? { walletBalance: { $gte: amount } } : {})
+            },
+            [
+                {
+                    $set: {
+                        walletBalance: balanceExpression,
+                        walletHistory: {
+                            $concatArrays: [
+                                { $ifNull: ['$walletHistory', []] },
+                                [
+                                    {
+                                        $mergeObjects: [
+                                            { $literal: historyEntry },
+                                            {
+                                                balanceBefore: { $ifNull: ['$walletBalance', 0] },
+                                                balanceAfter: balanceExpression
+                                            }
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                }
+            ],
+            { returnDocument: 'after', updatePipeline: true }
+        );
+
+        if (!company) {
+            const companyExists = await Company.exists({ _id: req.params.companyId });
+            if (!companyExists) {
+                return next(new ApiError(404, 'Company not found'));
+            }
+            return next(new ApiError(402, 'Insufficient company wallet balance'));
+        }
+
+        const adjustment = company.walletHistory[company.walletHistory.length - 1];
+        return res.status(200).json({
+            success: true,
+            message: 'Company wallet balance updated successfully',
+            data: {
+                company: {
+                    _id: company._id,
+                    name: company.name,
+                    walletBalance: company.walletBalance
+                },
+                adjustment
+            }
+        });
+    } catch (error) {
+        if (error.name === 'CastError') {
+            return next(new ApiError(400, 'Invalid company ID'));
+        }
+        return next(error);
     }
 }

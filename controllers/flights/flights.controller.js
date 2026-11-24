@@ -26,7 +26,7 @@ export const flightOffers = async (req, res, next) => {
             flightType,
             directFlight,
         } = req.body;
-        const baseUrl = process.env.AMADEUS_BASE_URL;
+        const baseUrl = process.env.AMADEUS_TEST_URL;
 
         // Validate and prepare request to Amadeus API
         const token = await getAmadeusToken();
@@ -130,7 +130,7 @@ export const flightPricing = async (req, res, next) => {
     try {
         const token = await getAmadeusToken();
         const flightOffer = req.body;
-        const baseUrl = process.env.AMADEUS_BASE_URL;
+        const baseUrl = process.env.AMADEUS_TEST_URL;
 
 
         if (!flightOffer) return next(new ApiError(500, "flightOffer is required"));

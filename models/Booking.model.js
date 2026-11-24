@@ -53,6 +53,15 @@ const bookingSchema = new mongoose.Schema({
         required: true,  // no default — set it explicitly
     },
     approvedAt: Date,
+    approvalProcessing: {
+        type: Boolean,
+        default: false
+    },
+    approvalAttempts: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
     rejectionReason: String,
     approvedBy: {
         type: mongoose.Schema.Types.ObjectId,
