@@ -367,7 +367,7 @@ export const approveBooking = async (req, res, next) => {
 
                 console.error("Flight ticketing failed after booking approval:", providerError.response?.data || providerError.message);
                 return next(new ApiError(
-                    502,
+                    500,
                     `Ticket issuance failed; wallet refund was attempted. Approval attempt ${claimedBooking.approvalAttempts} of ${MAX_APPROVAL_ATTEMPTS}.`
                 ));
             }
